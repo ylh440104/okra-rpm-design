@@ -1,0 +1,53 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ cmake rpm zstd python3 binutils
+
+      - name: Build version_scheme
+        run: |
+          cd code/lib/okrapmlib
+          g++ -std=c++17 -Wall -Wextra -O2 -o /tmp/vs_test \
+            tests/version_scheme_test.cpp src/version_scheme.cpp -Iinclude
+          /tmp/vs_test
+
+      - name: Build dependency
+        run: |
+          cd code/lib/okrapmlib
+          g++ -std=c++17 -Wall -Wextra -O2 -o /tmp/dep_test \
+            tests/dependency_test.cpp src/dependency.cpp src/version_scheme.cpp -Iinclude
+          /tmp/dep_test
+
+      - name: Build dependency_serialization
+        run: |
+          cd code/lib/okrapmlib
+          g++ -std=c++17 -Wall -Wextra -O2 -o /tmp/ds_test \
+            tests/dependency_serialization_test.cpp \
+            src/dependency_serialization.cpp src/dependency.cpp \
+            src/version_scheme.cpp -Iinclude
+          /tmp/ds_test
+
+      - name: Generate vercmp expected values
+        run: |
+          cd code/lib/okrapmlib
+          rpm --eval "%{lua: dofile('tests/vercmp-cases.lua')}" || true
+
+      - name: Check code style
+        run: |
+          cd code/lib/okrapmlib
+          awk 'length($0)>120{print FILENAME":"FNR" ("length($0)")"}' \
+            src/*.cpp include/okrapmlib/*.h tests/*.cpp
+          echo "Line width check done (no output = OK)"

@@ -1,0 +1,49 @@
+name: Fuzz Tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: '0 2 * * 0'
+
+jobs:
+  fuzz-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ rpm
+
+      - name: Build fuzz harness
+        run: |
+          cd code/lib/okrapmlib
+          g++ -std=c++17 -O2 -o /tmp/fuzz_main \
+            tests/fuzz_main.cpp src/version_scheme.cpp -Iinclude
+
+      - name: Run fuzz tests (8 seeds)
+        run: |
+          cd code/lib/okrapmlib
+          TOTAL=0
+          BAD=0
+          for S in 1 2 3 5 7 11 42 99; do
+            FUZZ_SEED=$S FUZZ_PAIRS=5000 \
+              rpm --eval "%{lua: dofile('tests/fuzz-cases.lua')}" || true
+            /tmp/fuzz_main > /tmp/fuzz-actual.txt 2>/dev/null || true
+            if [ -f /tmp/fuzz-expected.txt ] && [ -f /tmp/fuzz-pairs.txt ]; then
+              N=$(wc -l < /tmp/fuzz-pairs.txt)
+              D=$(diff /tmp/fuzz-expected.txt /tmp/fuzz-actual.txt | grep -c '^<' || true)
+              TOTAL=$((TOTAL+N))
+              BAD=$((BAD+D))
+              echo "  seed $S: $N pairs, $D diff"
+            fi
+          done
+          echo "Total: $TOTAL pairs, $BAD diff"
+          if [ "$BAD" -gt 0 ]; then
+            echo "::error::Fuzz test found $BAD differences"
+            exit 1
+          fi

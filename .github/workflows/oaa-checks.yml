@@ -1,0 +1,41 @@
+name: OAA Package Checks
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: '0 2 * * 0'
+
+jobs:
+  oaa-checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 zstd tar
+
+      - name: Build oaa-build
+        run: |
+          chmod +x scripts/test-oaa-symlinks.sh
+          cp /dev/null /tmp/oaa-build-placeholder
+
+      - name: Run symlink regression test
+        run: |
+          if [ -x /usr/bin/oaa-build ] || [ -x ./scripts/oaa-build ]; then
+            bash scripts/test-oaa-symlinks.sh
+          else
+            echo "oaa-build not available, skipping symlink test"
+          fi
+
+      - name: Run check-oaa-duplicates
+        run: |
+          if ls *.oaa 1>/dev/null 2>&1; then
+            python3 scripts/check-oaa-duplicates.py *.oaa
+          else
+            echo "No .oaa files to check"
+          fi

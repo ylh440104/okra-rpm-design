@@ -1,0 +1,87 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: '0 2 * * 0'
+
+jobs:
+  integration:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ rpm rpm2cpio cpio zstd python3
+
+      - name: Build all components
+        run: |
+          cd code/lib/okrapmlib
+          g++ -std=c++17 -Wall -Wextra -O2 -o /tmp/vs_test \
+            tests/version_scheme_test.cpp src/version_scheme.cpp -Iinclude
+          g++ -std=c++17 -Wall -Wextra -O2 -o /tmp/dep_test \
+            tests/dependency_test.cpp src/dependency.cpp src/version_scheme.cpp -Iinclude
+          g++ -std=c++17 -Wall -Wextra -O2 -o /tmp/ds_test \
+            tests/dependency_serialization_test.cpp \
+            src/dependency_serialization.cpp src/dependency.cpp \
+            src/version_scheme.cpp -Iinclude
+
+      - name: Run unit tests
+        run: |
+          /tmp/vs_test
+          /tmp/dep_test
+          /tmp/ds_test
+
+      - name: Fetch Fedora primary.xml
+        run: |
+          wget -q -O /tmp/primary.xml.zst \
+            "https://mirrors.aliyun.com/fedora/releases/42/Everything/aarch64/os/repodata/97601ea9757673cecc8ebcad44c42b7fd7f5107769b6ec969d3e3d4c73c51020-primary.xml.zst"
+          zstd -d /tmp/primary.xml.zst -o /tmp/primary.xml
+
+      - name: Build RpmRepositoryBackend test
+        run: |
+          cd code/lib/okrapmlib
+          g++ -std=c++17 -Wall -Wextra -O2 -o /tmp/repo_test \
+            tests/rpm_repository_test.cpp src/rpm_repository.cpp \
+            src/dependency.cpp src/version_scheme.cpp \
+            src/dependency_serialization.cpp -Iinclude
+
+      - name: Run repository test
+        run: /tmp/repo_test /tmp/primary.xml
+
+      - name: Fetch sample RPMs
+        run: |
+          BASE="https://mirrors.aliyun.com/fedora/releases/42/Everything/aarch64/os/Packages"
+          mkdir -p /tmp/rpms
+          wget -q -O /tmp/rpms/cmake.rpm "$BASE/c/cmake-3.31.6-2.fc42.aarch64.rpm"
+          wget -q -O /tmp/rpms/ninja.rpm "$BASE/n/ninja-build-1.12.1-4.fc42.aarch64.rpm"
+
+      - name: Build RpmArtifactBackend test
+        run: |
+          cd code/lib/okrapmlib
+          g++ -std=c++17 -Wall -Wextra -O2 -o /tmp/art_test \
+            tests/rpm_artifact_test.cpp src/rpm_artifact.cpp \
+            src/rpm_repository.cpp src/dependency.cpp \
+            src/version_scheme.cpp src/dependency_serialization.cpp -Iinclude
+
+      - name: Run artifact test
+        run: |
+          /tmp/art_test /tmp/rpms/cmake.rpm
+          /tmp/art_test /tmp/rpms/ninja.rpm
+
+      - name: Build RpmResolver test
+        run: |
+          cd code/lib/okrapmlib
+          g++ -std=c++17 -Wall -Wextra -O2 -o /tmp/res_test \
+            tests/rpm_resolver_test.cpp src/rpm_resolver.cpp \
+            src/rpm_repository.cpp src/rpm_artifact.cpp \
+            src/dependency.cpp src/version_scheme.cpp \
+            src/dependency_serialization.cpp -Iinclude
+
+      - name: Run resolver test
+        run: /tmp/res_test /tmp/primary.xml
